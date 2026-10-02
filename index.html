@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Video Generator</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="logo">AI Video Generator</div>
+        <button id="saveKeysBtn" class="ghost-btn">Save Keys</button>
+      </header>
+
+      <main class="container">
+        <section class="panel">
+          <h2>1. Add your API keys</h2>
+
+          <label for="hfToken">Hugging Face Token</label>
+          <input id="hfToken" type="password" placeholder="hf_xxxxxxxxx" />
+
+          <label for="elevenLabsToken">ElevenLabs Token</label>
+          <input id="elevenLabsToken" type="password" placeholder="sk_xxxxxxxxx" />
+
+          <label for="replicateToken">Replicate Token (optional)</label>
+          <input id="replicateToken" type="password" placeholder="r8_xxxxxxxxx" />
+        </section>
+
+        <section class="panel">
+          <h2>2. Write your story</h2>
+          <textarea id="scriptInput" rows="8" placeholder="Example: A calm sunrise. A young woman opens a window in a cozy apartment. The room glows with warm light. She smiles and starts her day."></textarea>
+        </section>
+
+        <section class="panel">
+          <h2>3. Generate</h2>
+
+          <div class="controls">
+            <button id="generateBtn" class="primary-btn">Generate video</button>
+            <button id="testBtn" class="secondary-btn">Test setup</button>
+          </div>
+
+          <div id="status" class="status">
+            Ready to generate.
+          </div>
+
+          <div class="progress">
+            <div id="progressBar" class="progress-bar"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>4. Preview & Download</h2>
+          <video id="previewVideo" controls></video>
+          <a id="downloadLink" class="download-link hidden" download>Download MP4</a>
+        </section>
+      </main>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
