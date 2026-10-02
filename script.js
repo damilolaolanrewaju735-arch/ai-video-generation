@@ -43,7 +43,7 @@ async function testSetup() {
     return;
   }
 
-  statusEl.textContent = "Testing connection to API services...";
+  statusEl.textContent = "Testing Hugging Face...";
   updateProgress(20);
 
   try {
@@ -59,12 +59,14 @@ async function testSetup() {
     });
 
     if (!res.ok) {
-      throw new Error(`Hugging Face error: ${res.status}`);
+      const text = await res.text();
+      throw new Error(`Hugging Face failed (${res.status}): ${text}`);
     }
 
     statusEl.textContent = "Hugging Face API is working.";
-    updateProgress(60);
+    updateProgress(50);
 
+    statusEl.textContent = "Testing ElevenLabs...";
     const ttsRes = await fetch("https://api.elevenlabs.io/v1/voices", {
       method: "GET",
       headers: {
@@ -73,14 +75,15 @@ async function testSetup() {
     });
 
     if (!ttsRes.ok) {
-      throw new Error(`ElevenLabs error: ${ttsRes.status}`);
+      const text = await ttsRes.text();
+      throw new Error(`ElevenLabs failed (${ttsRes.status}): ${text}`);
     }
 
     statusEl.textContent = "Everything looks connected correctly.";
     updateProgress(100);
 
   } catch (error) {
-    statusEl.textContent = "Connection test failed. Check your API keys or internet connection.";
+    statusEl.textContent = "Connection test failed. " + error.message;
     console.error(error);
   }
 }
@@ -119,7 +122,7 @@ async function generateVideo() {
     statusEl.textContent = "Generating voiceover...";
     updateProgress(70);
 
-    const audioBlob = await generateVoiceover(sceneToText(script), eleven);
+    const audioBlob = await generateVoiceover("A calm sunrise. A young woman opens a window.", eleven);
 
     statusEl.textContent = "Generating final video...";
     updateProgress(85);
@@ -134,7 +137,7 @@ async function generateVideo() {
     updateProgress(100);
 
   } catch (error) {
-    statusEl.textContent = "Something went wrong during generation. Please check your tokens and try again.";
+    statusEl.textContent = "Something went wrong during generation. " + error.message;
     console.error(error);
   }
 }
@@ -142,10 +145,6 @@ async function generateVideo() {
 function splitScriptIntoScenes(script) {
   const sentences = script.split(/[.!?]+/).filter(s => s.trim().length > 0);
   return sentences.slice(0, 5);
-}
-
-function sceneToText(script) {
-  return script.slice(0, 400);
 }
 
 async function generateImageFromHF(prompt, token) {
@@ -161,7 +160,8 @@ async function generateImageFromHF(prompt, token) {
   });
 
   if (!response.ok) {
-    throw new Error("Image generation failed.");
+    const text = await response.text();
+    throw new Error(`Image generation failed: ${response.status} ${text}`);
   }
 
   const blob = await response.blob();
@@ -169,25 +169,27 @@ async function generateImageFromHF(prompt, token) {
 }
 
 async function generateVoiceover(text, token) {
-  const response = await fetch("https://api.elevenlabs.io/v1/text-to-speech/21m00Tdm4aaJJqv6M9K8u4c", {
+  const voiceId = "21m00Tdm4aaJJqv6M9K8u4c";
+
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "xi-api-key": token
     },
     body: JSON.stringify({
-      text,
+      text: text,
       model_id: "eleven_multilingual_v2",
       voice_settings: {
         stability: 0.5,
-        voice_id: "21m00Tdm4aaJJqv6M9K8u4c"
+        similarity_boost: 0.8
       }
     })
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Voice generation failed: ${errorText}`);
+    const errText = await response.text();
+    throw new Error(`Voice generation failed: ${response.status} ${errText}`);
   }
 
   const audioBlob = await response.blob();
@@ -195,15 +197,23 @@ async function generateVoiceover(text, token) {
 }
 
 async function composeVideo(images, audioBlob) {
+  if (!images || images.length === 0) {
+    throw new Error("No images were generated.");
+  }
+
   const canvas = document.createElement("canvas");
   canvas.width = 1280;
   canvas.height = 720;
 
-  const ctx = canvas.getContext("2d");
+  const stream = canvas.captureStream(20);
+  const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
 
-  const videoChunks = [];
-  const duration = 1.8;
+  const chunks = [];
+  recorder.ondataavailable = (event) => {
+    if (event.data.size > 0) chunks.push(event.data);
+  };
 
+  const imageFrames = [];
   for (let i = 0; i < images.length; i++) {
     const img = new Image();
     img.src = images[i];
@@ -213,64 +223,31 @@ async function composeVideo(images, audioBlob) {
       img.onerror = reject;
     });
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    const chunk = document.createElement("canvas");
-    chunk.width = canvas.width;
-    chunk.height = canvas.height;
-
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const chunkCtx = chunk.getContext("2d");
-    chunkCtx.putImageData(imageData, 0, 0);
-
-    videoChunks.push(chunk);
-  }
-
-  const video = document.createElement("video");
-  video.src = images[0];
-  video.muted = true;
-  video.playsInline = true;
-
-  await new Promise((resolve, reject) => {
-    video.onloadeddata = resolve;
-    video.onerror = reject;
-  });
-
-  const finalCanvas = document.createElement("canvas");
-  finalCanvas.width = 1280;
-  finalCanvas.height = 720;
-
-  const canvasStream = finalCanvas.getContext("2d");
-  canvasStream.drawImage(video, 0, 0, finalCanvas.width, finalCanvas.height);
-
-  const audioContext = new AudioContext();
-  const source = await audioContext.decodeAudioData(await audioBlob.arrayBuffer());
-
-  const finalChunks = [];
-  for (let i = 0; i < 5; i++) {
     const frameCanvas = document.createElement("canvas");
     frameCanvas.width = 1280;
     frameCanvas.height = 720;
+    const frameCtx = frameCanvas.getContext("2d");
+    frameCtx.drawImage(img, 0, 0, frameCanvas.width, frameCanvas.height);
 
-    const ctxFrame = frameCanvas.getContext("2d");
-    const img = new Image();
-    img.src = images[i % images.length];
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-    });
-
-    ctxFrame.drawImage(img, 0, 0, frameCanvas.width, frameCanvas.height);
-
-    finalChunks.push(frameCanvas);
+    imageFrames.push(frameCanvas);
   }
 
-  const blob = new Blob([await new Uint8Array()], {
-    type: "video/webm"
+  recorder.start();
+
+  for (let i = 0; i < imageFrames.length; i++) {
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(imageFrames[i], 0, 0, canvas.width, canvas.height);
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  recorder.stop();
+
+  await new Promise((resolve) => {
+    recorder.onstop = resolve;
   });
 
-  return blob;
+  return new Blob(chunks, { type: "video/webm" });
 }
 
 generateBtn.addEventListener("click", generateVideo);
